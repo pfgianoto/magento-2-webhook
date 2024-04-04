@@ -165,7 +165,12 @@ class Data extends CoreHelper
             ])
             ->setOrder('priority', 'ASC');
         $isSendMail     = $this->getConfigGeneral('alert_enabled');
-        $sendTo         = explode(',', $this->getConfigGeneral('send_to'));
+        $sendTo = '';
+		$configValue = $this->getConfigGeneral('send_to');
+
+		if ($configValue !== null) {
+			$sendTo = is_string($configValue) ? explode(',', $configValue) : '';
+		}
         foreach ($hookCollection as $hook) {
             if ($hook->getHookType() === HookType::ORDER) {
                 $statusItem  = $item->getStatus();
@@ -270,12 +275,275 @@ class Data extends CoreHelper
             if ($item instanceof Product) {
                 $item->setStockItem(null);
             }
+            $item->setData('cart_url', $this->_getUrl('checkout/cart', ['_secure' => true]));
+
+			if ($item instanceof \Magento\Sales\Model\Order) {
+				$payment = $item->getPayment();
+				$paymentMethod = $payment->getMethodInstance();
+				$paymentMethodName = $paymentMethod->getTitle(); // Obtém o nome da forma de pagamento
+
+				$item->setData('payment_method_name', $paymentMethodName);
+				
+				foreach ($item->getAllVisibleItems() as $it) {
+                    $product = $it->getProduct();
+                    $it->setData('product_url', $product->getUrlModel()->getUrl($product));
+					
+                    if ($it->getImageUrl() == null) {
+                        $product = $this->createObject(\Magento\Catalog\Api\ProductRepositoryInterfaceFactory::class)
+                        ->create()->getById($it->getProductId());
+                        $it->setData('image_url', $product->getImage());
+                    }					
+					
+					$productPrice = $product->getPrice();
+
+					// Formata o preço com ponto como separador decimal
+					$formattedPrice = number_format($productPrice, 2, '.', '');
+
+					// Define o preço formatado no objeto do item
+					$it->setData('product_price_formatted', $formattedPrice);
+			
+				}
+				
+					// Obtém o total e subtotal do pedido
+					$orderTotal = $item->getGrandTotal();
+					$orderSubtotal = $item->getSubtotal();
+
+					// Formata o total e subtotal com ponto como separador decimal
+					$formattedOrderTotal = number_format($orderTotal, 2, '.', '');
+					$formattedOrderSubtotal = number_format($orderSubtotal, 2, '.', '');
+
+					// Define o total e subtotal formatado no objeto do pedido
+					$item->setData('order_total_formatted', $formattedOrderTotal);
+					$item->setData('order_subtotal_formatted', $formattedOrderSubtotal);				
+					
+					// Recupera o ID do cliente do pedido
+					$customerId = $item->getCustomerId();
+
+					if ($customerId) {
+						$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+						$customerRepository = $objectManager->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
+						
+						try {
+							$customer = $customerRepository->getById($customerId);
+							$taxvat = $customer->getTaxvat();
+							$item->setData('customer_taxvat', $taxvat);
+						} catch (\Exception $e) {
+							// Trate qualquer exceção, se necessário
+						}
+					}
+			}
+			
+			
+			$trackingCodes = '';
+
+			// Verificar se o item tem informações de rastreamento e retorna código de rastreio
+			if ($item instanceof \Magento\Sales\Model\Order\Shipment) {
+				
+				// Obter o pedido associado à entrega
+				$order = $item->getOrder();
+				
+				$tracks = $item->getTracks();
+				foreach ($tracks as $track) {
+					$trackingCodes .= $track->getTrackNumber() . ', ';
+				}
+				
+				$trackingCodes = rtrim($trackingCodes, ', ');
+				$item->setData('tracking_codes', $trackingCodes);
+				
+				$orderIncrementId = $order->getIncrementId();
+				$item->setData('order_increment_id', $orderIncrementId);
+			
+				// Obtém o total e subtotal do pedido associado à entrega
+				$orderTotal = $order->getGrandTotal();
+				$orderSubtotal = $order->getSubtotal();
+
+				// Formata o total e subtotal com ponto como separador decimal
+				$formattedOrderTotal2 = number_format($orderTotal, 2, '.', '');
+				$formattedOrderSubtotal2 = number_format($orderSubtotal, 2, '.', '');
+
+				// Define o total e subtotal formatado no objeto da entrega
+				$item->setData('order_total_formatted_ship', $formattedOrderTotal2);
+				$item->setData('order_subtotal_formatted_ship', $formattedOrderSubtotal2);			
+			
+				// Verifica se o pedido tem um cliente associado
+				if ($order->getCustomerId()) {
+					$customerId = $order->getCustomerId();
+
+					// Obter o objeto do cliente através do CustomerRepositoryInterface
+					$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+					$customerRepository = $objectManager->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
+					
+					try {
+						$customer = $customerRepository->getById($customerId);
+						$taxvat = $customer->getTaxvat();
+						// O valor de $taxvat contém o número de identificação fiscal do cliente
+						$item->setData('customer_taxvat_ship', $taxvat);
+					} catch (\Exception $e) {
+						// Trate qualquer exceção, se necessário
+					}
+				}
+				
+				
+					// Obtém a data de criação do pedido
+					$orderCreatedAt = $order->getCreatedAt();
+
+					// Formata a data de criação no formato desejado (ano-mês-dia hora:minuto:segundo)
+					$formattedOrderCreatedAt = date('Y-m-d H:i:s', strtotime($orderCreatedAt));
+
+					// Define a data de criação formatada no objeto da entrega
+					$item->setData('order_created_at', $formattedOrderCreatedAt);
+			
+			
+			}
+			
+			if ($item instanceof \Magento\Sales\Model\Order\Invoice) {
+				
+				// Obter o pedido associado à entrega
+				$order = $item->getOrder();
+				
+			
+				$orderIncrementId = $order->getIncrementId();
+				$item->setData('order_increment_id', $orderIncrementId);
+			
+				// Obtém o total e subtotal do pedido associado à entrega
+				$orderTotal = $order->getGrandTotal();
+				$orderSubtotal = $order->getSubtotal();
+
+				// Formata o total e subtotal com ponto como separador decimal
+				$formattedOrderTotal2 = number_format($orderTotal, 2, '.', '');
+				$formattedOrderSubtotal2 = number_format($orderSubtotal, 2, '.', '');
+
+				// Define o total e subtotal formatado no objeto da entrega
+				$item->setData('order_total_formatted_ship', $formattedOrderTotal2);
+				$item->setData('order_subtotal_formatted_ship', $formattedOrderSubtotal2);			
+			
+				// Verifica se o pedido tem um cliente associado
+				if ($order->getCustomerId()) {
+					$customerId = $order->getCustomerId();
+
+					// Obter o objeto do cliente através do CustomerRepositoryInterface
+					$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+					$customerRepository = $objectManager->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
+					
+					try {
+						$customer = $customerRepository->getById($customerId);
+						$taxvat = $customer->getTaxvat();
+						// O valor de $taxvat contém o número de identificação fiscal do cliente
+						$item->setData('customer_taxvat_ship', $taxvat);
+					} catch (\Exception $e) {
+						// Trate qualquer exceção, se necessário
+					}
+				}
+				
+				
+					// Obtém a data de criação do pedido
+					$orderCreatedAt = $order->getCreatedAt();
+
+					// Formata a data de criação no formato desejado (ano-mês-dia hora:minuto:segundo)
+					$formattedOrderCreatedAt = date('Y-m-d H:i:s', strtotime($orderCreatedAt));
+
+					// Define a data de criação formatada no objeto da entrega
+					$item->setData('order_created_at', $formattedOrderCreatedAt);
+			
+			
+			}
+
+			/*if ($item instanceof \Magento\Sales\Model\Order) {
+				$trackingCodes = [];
+
+				// Itera pelos envios (shipments) associados ao pedido
+				foreach ($item->getShipmentsCollection() as $shipment) {
+					// Itera pelos códigos de rastreamento associados ao envio
+					foreach ($shipment->getTracksCollection() as $track) {
+						$trackingCodes[] = $track->getTrackNumber(); // Adiciona os códigos de rastreamento ao array
+					}
+				}
+
+				$item->setData('tracking_codes', $trackingCodes);
+			}*/
+
+            if ($item instanceof \Magento\Quote\Model\Quote) {
+                foreach ($item->getAllVisibleItems() as $it) {
+                    $product = $it->getProduct();
+                    $it->setData('product_url', $product->getUrlModel()->getUrl($product));
+                    if ($it->getImageUrl() == null) {
+                        $product = $this->createObject(\Magento\Catalog\Api\ProductRepositoryInterfaceFactory::class)
+                        ->create()->getById($it->getProductId());
+                        $it->setData('image_url', $product->getImage());
+                    }
+                    // $it->setData('product_url', $product->getProductUrl());
+                    // $it->setData('image_url', $product->getImage());
+                    // $it->setData('small_image', $product->getSmallImage());
+                    // $it->setData('attribute_set_id', $product->getAtributeSetId());
+                    // $it->setData('climate', $product->getClimate());
+                    // $it->setData('created_at', $product->getCreatedAt());
+                    // $it->setData('description', $product->getDescription());
+                    // $it->setData('entity_id', $product->getEntityId());
+                    // $it->setData('has_options', $product->getHasOptions());
+                    // $it->setData('is_salable', $product->getIsSalable());
+                    // $it->setData('name', $product->getName());
+                    // $it->setData('price', $product->getPrice());
+                    // $it->setData('sku', $product->getSku());
+                    // $it->setData('status', $product->getStatus());
+                    // $it->setData('thumbnail', $product->getThumbnail());
+                    // $it->setData('type_id', $product->getTypeId());
+                    // $it->setData('updated_at', $product->getUpdatedAt());
+                    // $it->setData('url_key', $product->getUrlKey());
+                    // $it->setData('visibility', $product->getVisibility());
+
+                    $item->setData('items', $item->getAllVisibleItems());
+                }
+				
+				// Verifica se o carrinho tem um cliente associado
+				if ($item->getCustomerId()) {
+					$customerId = $item->getCustomerId();
+
+					// Obter o objeto do cliente através do CustomerRepositoryInterface
+					$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+					$customerRepository = $objectManager->get(\Magento\Customer\Api\CustomerRepositoryInterface::class);
+					
+					try {
+						$customer = $customerRepository->getById($customerId);
+						$cellphone = $customer->getCustomAttribute('cellphone');
+						// O valor de $taxvat contém o número de identificação fiscal do cliente
+						$item->setData('customer_cellphone_cart', $cellphone);
+					} catch (\Exception $e) {
+						// Trate qualquer exceção, se necessário
+					}
+				}
+				
+				// Obtém o total e subtotal do pedido
+					$cartTotal = $item->getGrandTotal();
+					$cartSubtotal = $item->getSubtotal();
+
+					// Formata o total e subtotal com ponto como separador decimal
+					$formattedCartTotal = number_format($cartTotal, 2, '.', '');
+					$formattedCartSubtotal = number_format($cartSubtotal, 2, '.', '');
+
+					// Define o total e subtotal formatado no objeto do pedido
+					$item->setData('cart_total_formatted', $formattedCartTotal);
+					$item->setData('cart_subtotal_formatted', $formattedCartSubtotal);
+            }
 
             if ($item->getShippingAddress()) {
+				
+				$shippingAddress = $item->getShippingAddress();
+				$street = $shippingAddress->getStreet();
+				$formattedStreet = implode(', ', $street);
+				
+				$item->setData('formatted_shipping_street', $formattedStreet);
+				
                 $item->setData('shippingAddress', $item->getShippingAddress()->getData());
             }
 
             if ($item->getBillingAddress()) {
+				
+				$billingAddress = $item->getBillingAddress();
+				$street = $billingAddress->getStreet();
+				$formattedStreet = implode(', ', $street);
+				
+				$item->setData('formatted_billing_street', $formattedStreet);
+				
                 $item->setData('billingAddress', $item->getBillingAddress());
             }
 
@@ -329,22 +597,31 @@ class Data extends CoreHelper
         $result = ['success' => false];
 
         try {
-            $resultCurl         = $curl->read();
-            $result['response'] = $resultCurl;
-            if (!empty($resultCurl)) {
-                $result['status'] = Zend_Http_Response::extractCode($resultCurl);
-                if (isset($result['status']) && $this->isSuccess($result['status'])) {
-                    $result['success'] = true;
-                } else {
-                    $result['message'] = __('Cannot connect to server. Please try again later.');
-                }
-            } else {
-                $result['message'] = __('Cannot connect to server. Please try again later.');
-            }
-        } catch (Exception $e) {
-            $result['message'] = $e->getMessage();
-        }
-        $curl->close();
+			$resultCurl = $curl->read();
+			$result['response'] = $resultCurl;
+
+			if (!empty($resultCurl)) {
+				$httpResponse = explode("\r\n\r\n", $resultCurl, 2)[0]; // Isolando a parte do cabeçalho HTTP
+
+				preg_match('/HTTP\/\d\.\d\s(\d+)/', $httpResponse, $matches);
+
+				if (isset($matches[1])) {
+					$statusCode = (int)$matches[1];
+
+					if ($this->isSuccess($statusCode)) {
+						$result['success'] = true;
+					} else {
+						$result['message'] = __('Cannot connect to server. Please try again later.');
+					}
+				}
+			} else {
+				$result['message'] = __('Cannot connect to server. Please try again later.');
+			}
+		} catch (Exception $e) {
+			$result['message'] = $e->getMessage();
+		}
+
+		$curl->close();
 
         return $result;
     }

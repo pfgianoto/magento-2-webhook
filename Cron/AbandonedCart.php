@@ -103,7 +103,7 @@ class AbandonedCart
                 $this->helper->sendObserver($quote, HookType::ABANDONED_CART);
             }
         } catch (Exception $e) {
-            $this->logger->critical($e->getLogMessage());
+            $this->logger->critical($e->getMessage());
         }
     }
 }
